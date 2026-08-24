@@ -133,6 +133,9 @@ opencode 状态同步（in-process plugin，~0ms 延迟）：
     → 同上状态机（agent_id: opencode）
   permission.asked 通过 plugin POST /permission 进入 Clawd；决定经随机 localhost 端口上的反向 bridge 返回，
   CLI/TUI bridge 使用 Bun.serve，Desktop bridge 使用 node:http，再由 plugin 调用宿主 SDK 的 permission reply route。
+  permission.replied 使用 current requestID/sessionID 契约回送 completion lifecycle；同一 request 的 asked/replied
+  在 plugin 内因果串行，lifecycle 最多投递 3 次。Clawd 只按 agent/request/canonical session/bridge generation
+  精确清理 pending UI、timer 与 notification，不向宿主反向发送第二次决定。
 
 MiMo Code 状态同步（in-process plugin，~0ms 延迟）：
   MiMo Code 触发事件（session.created / session.status / message.part.updated 等）
@@ -177,6 +180,11 @@ opencode 权限气泡（event hook + 反向 bridge，非阻塞）：
     → Clawd 创建 bubble 窗口 → 用户 Allow/Always/Deny
     → Clawd POST plugin 的反向 bridge → bridge 用 ctx.client._client.post() 调 opencode 内置 Hono 路由 /permission/:id/reply
     → opencode 执行对应行为（once/always/reject）
+  用户先在 opencode 原生 UI 回答 → event hook 收到 permission.replied（sessionID/requestID/reply）
+    → plugin 同步失效 request 的反向 target，并在同 request asked POST 之后发送 replied lifecycle
+    → lifecycle 使用 lifecycle_bridge_url/token（不复用普通 bridge 字段，对旧 Clawd fail-safe）
+    → Clawd exact-match 删除该 request 的本地 pending、bubble、timer 与 notification
+    → 不调用 reverse bridge，不复制 reply，不产生第二次宿主决定
 
 MiMo Code 权限气泡（event hook + 反向 bridge，非阻塞，与 opencode 同源协议）：
   MiMo Code 请求权限 → event hook 收到 permission.asked
@@ -184,6 +192,8 @@ MiMo Code 权限气泡（event hook + 反向 bridge，非阻塞，与 opencode �
     → Clawd 创建 bubble 窗口 → 用户 Allow/Always/Deny
     → Clawd POST plugin 的反向 bridge → bridge 用 ctx.client._client.post() 调 MiMo Code 内置 Hono 路由 /permission/:id/reply
     → MiMo Code 执行对应行为（once/always/reject）
+  MiMo Code 原生 UI 的 permission.replied 走同一 request-specific completion lifecycle；共享 core 与自动化已覆盖，
+  但发布物真机验证必须单列，不能从 OpenCode 真机结果推断。
 
 DeepSeek Harness 权限气泡（approval waterfall，阻塞）：
   DSH approval/request → bridge prepend listener 挂起 POST /permission
@@ -411,7 +421,10 @@ Remote SSH 有两条明确分开的 transport 路径：
 ## Updating
 
 - Git 模式（非打包，主要是 macOS/Linux 源码运行）会 `git fetch` 比较 HEAD，有更新则 `git pull` + 必要时 `npm install`，然后 `app.relaunch()`
-- Windows NSIS 打包模式走 `electron-updater`
+- Windows NSIS 与 macOS DMG 打包模式走 `electron-updater`；均保持 `autoDownload=false`，用户确认后才下载
+- macOS Release 同时发布 x64 / arm64 的 DMG 与 ZIP；DMG 用于首次/手动安装，Squirrel.Mac 只消费 ZIP。`latest-mac.yml` 必须同时列出两架构的 ZIP 与 DMG，且 top-level `path` 指向 x64 ZIP
+- macOS 下载完成后可选择立即重启，或稍后正常退出并重新打开；安装请求期间复用 update bubble 显示准备状态，ready/staging 错误必须作为真实错误显示，不能降级成“已是最新”
+- 旧版 DMG 没有 ZIP 更新载荷，不能自举到首个支持应用内更新的桥接版；现有用户仍需手动安装桥接版一次。单元/metadata/包结构验证不等于同一 Developer ID 的 A→B 真机升级证据
 - 托盘菜单里的 “Check for Updates” 可以手动触发
 
 ## i18n
