@@ -1203,11 +1203,13 @@
     return null;
   }
 
-  function restoreSettingsFocus(rootNode, focusKey) {
+  function focusSettingsTarget(rootNode, focusKey, { onlyIfFocusLost = false } = {}) {
     const target = findSettingsFocusTarget(rootNode, focusKey);
     if (!target || target.disabled === true || typeof target.focus !== "function") return;
-    const active = document.activeElement;
-    if (active && active !== document.body && active.isConnected !== false) return;
+    if (onlyIfFocusLost) {
+      const active = document.activeElement;
+      if (active && active !== document.body && active.isConnected !== false) return;
+    }
     try { target.focus({ preventScroll: true }); } catch (_) { target.focus(); }
   }
 
@@ -1216,7 +1218,7 @@
     if (content && typeof renderHooks.content === "function") {
       const focusKey = getActiveSettingsFocusKey();
       renderHooks.content();
-      if (focusKey) restoreSettingsFocus(document.getElementById("content"), focusKey);
+      if (focusKey) focusSettingsTarget(document.getElementById("content"), focusKey, { onlyIfFocusLost: true });
     }
     if (modal && typeof renderHooks.modal === "function") renderHooks.modal();
   }
@@ -1953,6 +1955,7 @@
 
   core.ops = {
     installRenderHooks,
+    focusSettingsTarget,
     requestRender,
     selectTab,
     persistNavigationState,
